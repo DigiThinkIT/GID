@@ -78,7 +78,7 @@ class GID {
 	}
 
 	public static function get_value_else($array, $key, $default = NULL) {
-		if ( array_key_exists($array, $key) ) {
+		if ( array_key_exists($key, $array) ) {
 			return $array[$key];
 		} 
 			
@@ -640,7 +640,7 @@ class Filter {
  */
 class F {
 
-	public static $fields = array()];
+	public static $fields = array();
 	public static $filters = array();
 	public static $errors = array();
 	public static $method = null;
