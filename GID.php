@@ -280,7 +280,7 @@ class Sorting {
 		
 		if ( $max > -1 ) {
 			#echo "insert $key at $max<br/>";
-			array_splice($ordered_list, $max+1, 0, [$key]);
+			array_splice($ordered_list, $max+1, 0, array($key));
 		} else {
 			#echo "insert $key at start<br/>";
 			array_unshift($ordered_list, $key);
