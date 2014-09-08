@@ -82,7 +82,7 @@ class GID {
 			return $array[$key];
 		} 
 			
-		return $default
+		return $default;
 	}
 
 	public static function init($config = array()) {
