@@ -303,12 +303,12 @@ class T {
 	private static $_styles = array();
 	private static $_styles_order = array();
 
-	public static function add_style($name, $url, $dependencies=[]) {
+	public static function add_style($name, $url, $dependencies=array()) {
 		T::$_styles[$name] = $url;
 		Sorting::Dependency(T::$_styles_order, $name, $dependencies);
 	}
 
-	public static function add_script($name, $url, $dependencies=[]) {
+	public static function add_script($name, $url, $dependencies=array()) {
 		T::$_scripts[$name] = $url;
 		Sorting::Dependency(T::$_scripts_order, $name, $dependencies);
 	}
@@ -640,9 +640,9 @@ class Filter {
  */
 class F {
 
-	public static $fields = [];
-	public static $filters = [];
-	public static $errors = [];
+	public static $fields = array()];
+	public static $filters = array();
+	public static $errors = array();
 	public static $method = null;
 
 	public static function init($method_type) {
@@ -755,7 +755,7 @@ class F {
 		}
 
 		$options_render = '';
-		$options_list = [];
+		$options_list = array();
 		foreach($options as $k=>$v) {
 			$selected = '';
 			if ( (!$value && $k == $default_key) || ($value && $k == $value) ) {
