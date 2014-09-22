@@ -37,6 +37,8 @@ class GID {
 	public static $path = NULL;
 	public static $views_path = NULL;
 	public static $pages_path = NULL;
+	public static $domain = '';
+	public static $path_prefix = '';
 
 	public static function debug($on) {
 		GID::$_dbug = $on;
@@ -50,13 +52,13 @@ class GID {
 		return is_array(GID::$_dbug) && array_search($check, GID::$_dbug);
 	}
 
-	public static function URL($path) {
+	public static function URL($path, $include_domain = True) {
 		$base = '';
 		if ( array_key_exists('domain', GID::$config ) ) {
 			$base = (GID::is_secure()?'https://':'http://') . GID::$config['domain'];
 		}
 
-		return $base . $path;
+		return $base . GID::$path_prefix . $path;
 	}
 
 	public static function is_secure() {
@@ -73,6 +75,10 @@ class GID {
 
 	public static function URI() {
 		$uri_info = GID::parse_uri();
+		# remove prefix from url to keep app paths clean and relative to $path_prefix
+		if ( $uri_info['call_parts'][0] == GID::$path_prefix ) {
+			array_shift($uri_info['call_parts']);
+		}
 		$uri_path = '/' . implode('/', $uri_info['call_parts']);
 		return $uri_path;
 	}
@@ -91,6 +97,17 @@ class GID {
 				GID::$path = realpath($config['app_path']);
 			} else {
 				GID::$path = realpath(__DIR__);
+			}
+
+			if ( array_key_exists('domain', $config) ) {
+				GID::$domain = $config['domain'];
+			} else {
+				GID::$domain = $_SERVER['HTTP_HOST'];
+				$config['domain'] = GID::$domain;
+			}
+
+			if ( array_key_exists('path_prefix', $config) ) {
+				GID::$path_prefix = $config['path_prefix'];
 			}
 
 			GID::$views_path = GID::get_value_else($config, 'views_path', GID::fs_path(GID::$path, 'views'));
@@ -114,6 +131,7 @@ class GID {
 			$uri_path = GID::URI();//implode('/', $uri_info['call_parts']);
 
 			$call_stack = GID::uri_action(strtolower($_SERVER['REQUEST_METHOD']), $uri_path);
+			#echo '<pre>'.print_r($call_stack,1).'</pre>';
 			foreach($call_stack as $action) {
 				if ( GID::debug_check('uri') ) {
 					echo '<pre>';
@@ -148,7 +166,7 @@ class GID {
 	
 		}
 	}
-	
+
 	public static function uri_action($method, $uri_path) {
 		$call_stack = array();
 		$uri_combo = $method . ' ' . $uri_path;
@@ -325,16 +343,28 @@ class T {
 		T::$_master = $master;
 	}
 	
-	public static function view($view) {
+	public static function view($view, $extra_vars = array()) {
 
 		if ( $view == null || strlen(trim($view)) == 0 ) {
 			echo "Invalid view name: Empty";
+		}
+
+		$saved = array();
+		foreach($extra_vars as $key => $val) {
+			if ( array_key_exists($key, T::$_vars) ) {
+				$saved[$key] = T::$_vars[$key];
+			}
+			T::$_vars[$key] = $val;
 		}
 
 		T::$_calls++;
 		ob_start();
 		require GID::fs_path(GID::$views_path, $view . '.phtml');
 		$content = ob_get_clean();
+
+		foreach($saved as $key => $val) {
+			T::$_vars[$key] = $val;
+		}
 		
 		if ( T::$_calls == 1 ) {
 			T::$_content = $content;
@@ -345,7 +375,29 @@ class T {
 		T::$_calls--;
 	}
 
-	public static function get($var, $echo=True) {
+	public static function &val($var, $default=false) {
+		if ( array_key_exists($var, T::$_vars) ) {
+			return T::$_vars[$var];
+		} else {
+			return $default;
+		}
+	}
+
+	public static function out($var, $default=false, $callback=NULL) {
+		if ( is_callable($callback) ) {
+			$val = T::val($var, $default);
+			$val = $callback($val);
+			if ( is_string($val) ) {
+				echo $val;
+			} else {
+				print_r($val);
+			}
+		} else {
+			return T::get($var, true, $default);
+		}
+	}
+
+	public static function get($var, $echo=True, $default = False) {
 		if ( array_key_exists($var, T::$_vars) ) {
 			if ( $echo ) {
 				if ( is_string(T::$_vars[$var]) ) {
@@ -357,7 +409,14 @@ class T {
 			return T::$_vars[$var];
 		}
 
-		return false;
+		if ( $echo ) {
+
+			echo $default; 
+		} else {
+
+			return $default;
+
+		}
 	}
 
 	/**
@@ -568,6 +627,12 @@ class Filter {
 		return $this;
 	}
 
+	public function range($min, $max, $error = null) {
+		$this->min($min, $error);
+		$this->max($max, $error);
+		return $this;
+	}
+
 	public function default_value($default_value) {
 
 		if ( F::$fields[$this->_field] == null ) {
@@ -577,12 +642,23 @@ class Filter {
 		return $this;
 	}
 
+	/**
+	 * Filters all values not in the provided enum values.
+	 * You may pass a list of enum arguments or a single array with your enum values.
+	 * @param mixed Values to filter by or a single array containing all values to filter by.
+	 * @return Filter
+	 */
 	public function enum() {
 		$args = func_get_args();
+		if ( sizeof($args) == 1 && is_array($args[0]) ) {
+			$args = $args[0];
+		}
+
 		$value = F::$fields[$this->_field];
 		if ( !in_array($value, $args) ) {
 			F::$fields[$this->_field] = null;
 		}
+		return $this;
 	}
 
 	public function cast($type, $error = null) {
@@ -700,12 +776,16 @@ class F {
 		}
 	}
 
+	public static function add_field($name) {
+		F::fields($name);
+	}
+
 	public static function filter($field) {
 		F::$filters[$field] = new Filter($field);
 		return F::$filters[$field];
 	}
 
-	public static function input($name, $label, $type="text", $override=array()) {
+	public static function input($name, $label, $type="text", $override=array(), $extra='', $echo=true) {
 		$build = array("name" => $name, "id" => $name, "type" => $type);
 		if ( array_key_exists($name, F::$fields) ) {		
 			$build["value"] = F::$fields[$name];
@@ -717,10 +797,43 @@ class F {
 			$parts[] = "$k=\"$v\"";
 		}
 		$parts = implode(" ", $parts);
-?><div class="field field_<?php echo $name ?>"><label for="<?php echo $build['name']; ?>"><?php echo $label ?></label><input <?php echo $parts ?> /><?php
+		ob_start()
+?><div class="field field_<?php echo $name ?>"><label for="<?php echo $build['id']; ?>"><?php echo $label ?></label><input <?php echo $parts ?> /><?php echo $extra;
 		if ( array_key_exists($name, F::$errors) && sizeof(F::$errors[$name]) ) {
 ?><div class="error"><?php echo implode('<br/>', F::$errors[$name]) ?></div><?php
         	}
+		?></div><?php
+		$content = ob_get_clean();
+		if ( $echo ) {
+			echo $content;
+		} else {
+			return $content;
+		}
+	}
+
+	public static function text($name, $label, $override=array(), $extra='', $echo=true) {
+		return F::input($name, $label, 'text', $override, $extra, $echo); 
+	}
+
+	public static function checkbox($name, $label, $value, $is_default=false, $type="checkbox", $override=array()) {
+		$build = array("name" => $name, "id" =>$name, "type" => $type, "value" => $value);
+		if ( array_key_exists($name, F::$fields) && $value == F::$fields[$name]  ) {
+			$build["checked"] = "checked";
+		} else if ( $is_default ) {
+			F::$fields[$name] = $value;
+			$build["checked"] = "checked";
+		}
+
+		$build = array_merge($build, $override);
+		$parts = array();
+		foreach($build as $k => $v) {
+			$parts[] = "$k=\"$v\"";
+		}
+		$parts = implode(" ", $parts);
+?><div class="field field_<?php echo $name ?>"><input <?php echo $parts ?> /><label for="<?php echo $build['id']; ?>"><?php echo $label; ?></label><?php
+		if ( array_key_exists($name, F::$errors) && sizeof($F::$errors[$name]) ) {
+?><div class="error"><?php echo implode('<br/>', F::$errors[$name]) ?></div><?php
+		}
 		?></div><?php
 	}
 
@@ -746,7 +859,15 @@ class F {
 		
 	}
 
-	public static function select($name, $label, $options, $default_key = null, $override=array()) {
+	public static function select($name, $label, $options, $default_key = null, $override=array(), $extra='', $echo=true) {
+		if ( !$override ) {
+			$override = array();
+		}
+
+		if ( !$extra ) {
+			$extra = '';
+		}
+
 		$build = array("name" => $name, "id" => $name);
 		if ( array_key_exists($name, F::$fields) ) {		
 			$value = F::$fields[$name];
@@ -777,25 +898,42 @@ class F {
 			$parts[] = "$k=\"$v\"";
 		}
 		$parts = implode(" ", $parts);
+
+		ob_start();
 ?><div class="field field_<?php echo $name ?>"><label for="<?php echo $build['name']; ?>"><?php echo $label ?></label><select <?php echo $parts ?>><?php echo $options_render; ?></select><?php
+		echo $extra;
+
 		if ( array_key_exists($name, F::$errors) && sizeof(F::$errors[$name]) ) {
 ?><div class="error"><?php echo implode('<br/>', F::$errors[$name]) ?></div><?php
         	}
 		?></div><?php
+		$content = ob_get_clean();
 
+		if ( $echo ) {
+			echo $content;
+		} else {
+			return $content;
+		}
 	}
 
-	public static function file($name, $label, $override=array()) {
-		F::input($name, $label, 'file', $override);
+	public static function file($name, $label, $override=array(), $extra='', $echo=true) {
+		return F::input($name, $label, 'file', $override, $extra, $echo);
 	}
 
-	public static function password($name, $label, $override=array()) {
-		F::input($name, $label, 'password', $override);
+	public static function password($name, $label, $override=array(), $extra='', $echo=true) {
+		return F::input($name, $label, 'password', $override, $extra, $echo);
 	}
 
-	public static function submit($label) {
-?><div class="submit"><input type="submit" value="<?php echo $label ?>" /></div><?php
-		
+	public static function submit($label, $extra='', $echo=true) {
+		ob_start()
+?><div class="submit"><input type="submit" value="<?php echo $label ?>" /><?php echo $extra;?></div><?php
+		$content = ob_get_clean();
+
+		if ( $echo ) {
+			echo $content;
+		} else {
+			return $content;
+		}
 	}
 
 	public static function on_submit() {
@@ -821,8 +959,13 @@ class SESSION {
 		return SESSION::$_started;
 	}
 
-	public static function start() {
+	public static function start($session_name=null) {
 		SESSION::$_started = true;
+
+		if ( $session_name != null ) {
+			session_name($session_name);
+		}
+
 		if ( array_key_exists('session_domain', GID::$config) ) {
 			session_set_cookie_params(0, '/', GID::$config['session_domain']);
 		}
@@ -832,6 +975,19 @@ class SESSION {
 	public static function close() {
 		session_write_close();
 		SESSION::$_started = false;
+	}
+
+}
+
+class SECURE {
+
+	public static function password_hash($password) {
+		$salt = mcrypt_create_iv(16, MCRYPT_DEV_URANDOM);
+		return crypt($password, '$6$rounds=5000$'.$salt.'$');
+	}
+
+	public static function password_check($password, $hash) {
+		return $hash == crypt($password, $hash);
 	}
 
 }
