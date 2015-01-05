@@ -462,9 +462,17 @@ class Filter {
 	private $_field;
 	private $_allow_null = false;
 	private $_allow_empty = false;
+	private $_value = null;
 
 	public function __construct($field) {
 		$this->_field = $field;
+		if ( !array_key_exists($this->_field, F::$fields) ) {
+			F::$fields[$this->_field] = null;
+		}
+
+		$this->_is_array = is_array(F::$fields[$this->_field]);
+
+		$this->_value = &F::$fields[$this->_field];
 	}
 
 	public function is_email($error) {
@@ -486,12 +494,47 @@ class Filter {
 		return $this;
 	}
 
-	public function sanitize() {
-		
-		$value = F::$fields[$this->_field];
-		$value = trim(filter_var(strip_tags($value), FILTER_SANITIZE_STRING));
+	private function _is_date($value, $format, $error, $key) {
 
-		F::$fields[$this->_field] = $value;
+		if ( $this->_allow_null && $value == null ) {
+			return $this;
+		}
+
+		if ( $this->_allow_empty && empty($value) ) {
+			return $this;
+		}
+		
+		$test = DateTime::createFromFormat($format, $value);
+		if ( !($test && $test->format($format) == $value) ) {
+			F::$errors[$this->_field . $key][] = $error;
+		}
+	}	
+
+	public function is_date($format = 'm/d/Y', $error = "Date format is mm/dd/yyyy") {
+		if ( $this->_is_array ) {
+			foreach($this->_value as $key => $val) {
+				$this->_is_date($val, $format, $error, '_'.$key);
+			}
+		} else {
+			$this->_is_date($this->_value, $format, $error, '');
+		}
+
+		return $this;
+	}
+
+	private function _sanitize($value) {
+		return trim(filter_var(strip_tags($value), FILTER_SANITIZE_STRING));
+	}
+
+	public function sanitize() {
+
+		if ( $this->_is_array ) {
+			foreach($this->_value as $key => $val) {
+				$this->_value[$key] = $this->_sanitize($val);
+			}
+		} else {
+			$this->_value = $this->_sanitize($this->_value);
+		}		
 
 		return $this;
 	}
@@ -506,24 +549,44 @@ class Filter {
 		return $this;
 	}
 
-	public function not_null($error = "Value is null") {
-		$this->_allow_null = false;
-		$value = F::$fields[$this->_field];
+	private function _not_null($value, $error, $key) {
 		if ( $value == null ) {
-			F::$errors[$this->_field][] = $error;
+			F::$errors[$this->_field . $key][] = $error;
+		}
+	}
+
+	public function not_null($error = "Value is required") {
+		$this->_allow_null = false;
+
+		if ( $this->_is_array ) {
+			foreach($this->_value as $key => $val) {
+				$this->_not_null($val, $error, '_'.$key);
+			}
+		} else {
+			$this->_not_null($this->_value, $error, '');
 		}
 
 		return $this;
 	}
 
+	private function _not_empty($value, $error, $key) {
+		if ( empty($value)  ) {
+
+			F::$errors[$this->_field . $key][] = $error;
+		}
+	}
+
 	public function not_empty($error = "Value can't be empty") {
 		$this->_allow_empty = false;
-		$value = F::$fields[$this->_field];
 
-		if ( empty($value)  ) {
-			F::$errors[$this->_field][] = $error;
+		if ( $this->_is_array ) {
+			foreach($this->_value as $key=>$val) {
+				$this->_not_empty($val, $error, '_'.$key);
+			}
+		} else {
+			$this->_not_empty($this->_value, $error, '');
 		}
-		
+
 		return $this;
 	}
 
@@ -553,75 +616,125 @@ class Filter {
 		return $this;
 	}
 
+	private function _custom($value, $args) {
+		foreach($args as $arg) {
+			$value = call_user_func($arg, $value);
+		}
+		return $value;	
+	}
+
 	/**
          * Filter field value with the provided callbacks
          */
 	public function custom() {
 		$args = func_get_args();
-		$value = F::$fields[$this->_field];
-		foreach($args as $arg) {
-			$value = call_user_func($arg, $value);
-		}
 
-		F::$fields[$this->_field] = $value;
+		if ( $this->_is_array ) {
+			foreach($this->_value as $key => $val) {
+				$this->_value[$key] = $this->_custom($val, $args);
+			}
+		} else {
+			$this->_value = $this->_custom($this->_value, $args);
+		}
 
 		return $this;
 	}
 
-	public function max_length($length, $error = null, $truncate = false) {
-
-		$value = F::$fields[$this->_field];
+	private function _max_length($value, $length, $error, $truncate, $key) {
 		if ( strlen($value) > $length ) {
 			if ($error != null) {
-				F::$errors[$this->_field][] = $error;
+				F::$errors[$this->_field . $key][] = $error;
 			}
 
 			if ($truncate) {
 				$value = substr($value, 0, $length);
 			}
 
-			F::$errors[$this->_field][] = $value;
+			return $value;
+		}
+
+		return $value;
+	}
+
+	public function max_length($length, $error = null, $truncate = false) {
+		
+		if ( $this->_is_array ) {
+			foreach($this->_value as $key => $val) {
+				$this->_value[$key] = $this->_max_length($val, $length, $error, $truncate, '_'.$key);
+			}
+		} else {
+			$this->_value = $this->_max_length($this->_value, $length, $error, $truncate, '');
 		}
 
 		return $this;
 	}
-	
-	public function min_length($length, $error) {
 
-		$value = F::$fields[$this->_field];
+	public function _min_length($value, $length, $error, $key) {
 
 		if ( (!isset($value) || strlen($value) == 0 ) && ($this->_allow_null || $this->_allow_empty) ) {
-			return $this; // early exit when allowing non values
+			return; // early exit when allowing non values
 		}
 
 		if ( strlen($value) < $length ) {
-			F::$errors[$this->_field][] = $error;
+			F::$errors[$this->_field . $key][] = $error;
+		}
+
+	}
+	
+	public function min_length($length, $error) {
+		
+		if ( $this->_is_array ) {
+			foreach($this->_value as $key => $val) {
+				$this->_min_length($val, $length, $error, '_'.$key);
+			}
+		} else {
+			$this->_min_length($this->_value, $length, $error, '');
 		}
 
 		return $this;
 	}
 
-	public function min($min, $error = null) {
-		$value = F::$fields[$this->_field];
+	private function _min($value, $min, $error, $key) {
 		if ( $value < $min ) {
 			$value = $min;
 			if ( $error != null ) {
-				F::$errors[$this->_field][] = $error;
+				F::$errors[$this->_field . $key][] = $error;
 			}
-			F::$fields[$this->_field] = $value;
+		}
+
+		return $value;
+	}
+
+	public function min($min, $error = null) {
+		if ( $this->_is_array ) {
+			foreach($this->_value as $key => $val) {
+				$this->_value[$key] = $this->_min($val, $min, $error, '_'.$key);
+			}
+		} else {
+			$this->_value = $this->_min($this->_value, $min, $error, '');
 		}
 
 		return $this;
 	}
 
-	public function max($max, $error = null) {
-		$value = F::$fields[$this->_field];
+	private function _max($value, $max, $error, $key) {
 		if ( $value > $max ) {
 			$value = $max;
 			if ( $error != null ) {
-				F::$errors[$this->_field][] = $error;
+				F::$errors[$this->_field . $key][] = $error;
 			}
-			F::$fields[$this->_field] = $value;
+		}
+
+		return $value;
+	}
+
+	public function max($max, $error = null) {
+		if ( $this->_is_array ) {
+			foreach($this->_value as $key => $val) {
+				$this->_value[$key] = $this->_max($val, $max, $error, '_'.$key);
+			}
+		} else {
+			$this->_value = $this->_max($this->_value, $max, $error, '');
 		}
 
 		return $this;
@@ -883,10 +996,10 @@ class F {
 				$selected = ' selected';
 			}
 
-			$value_att = '';
-			if ( $k ) { 
+			//$value_att = '';
+			//if ( $k ) { 
 				$value_att = 'value="'.$k.'"';
-			}
+			//}
 
 			$options_list[] = '<option '.$selected.' '.$value_att.'>'.$v.'</option>';
 		}
