@@ -212,6 +212,8 @@ class GID {
 				foreach($parts as $p) {
 					if ( strlen($p) > 0 && $p[0] == ':' ) {
 						$asm[] = '(?P<'.substr($p, 1).'>[a-z0-9\-_]*)';
+					} else if ( $p == '*' ) {
+						$asm[] = '.*';
 					} else {
 						$asm[] = $p;
 					}
@@ -504,17 +506,31 @@ class Filter {
 			return $this;
 		}
 		
-		$test = DateTime::createFromFormat($format, $value);
-		if ( !($test && $test->format($format) == $value) ) {
-			F::$errors[$this->_field . $key][] = $error;
+		if ( is_array($format) ) {
+			$fail = true;
+			foreach($format as $fmt) {
+				$test = DateTime::createFromFormat($fmt, $value);
+				if ( ($test && $test->format($fmt) == $value) ) {
+					$fail = false;
+				}
+			}
+
+			if ( $fail ) {
+				F::$errors[$this->_field . $key][] = $error;
+			}
+		} else {
+			$test = DateTime::createFromFormat($format, $value);
+			if ( !($test && $test->format($format) == $value) ) {
+				F::$errors[$this->_field . $key][] = $error;
+			}
 		}
 	}	
 
 	public function is_date($format = 'm/d/Y', $error = "Date format is mm/dd/yyyy") {
 		if ( $this->_is_array ) {
 			foreach($this->_value as $key => $val) {
-				$this->_is_date($val, $format, $error, '_'.$key);
-			}
+				$this->_is_date($val, $format, $error, '_' . $key);
+			} 
 		} else {
 			$this->_is_date($this->_value, $format, $error, '');
 		}
@@ -1075,14 +1091,44 @@ class SESSION {
 	public static function start($session_name=null) {
 		SESSION::$_started = true;
 
+		$session_cookie_path = '/';
+		if ( array_key_exists('session_cookie_path', GID::$config) ) {
+			$session_cookie_path = GID::$config['session_cookie_path'];
+		}
+
+		$session_cookie_lifetime = 3600;
+		if ( array_key_exists('session_cookie_lifetime', GID::$config) ) {
+			$session_cookie_lifetime = GID::$config['session_cookie_lifetime'];
+		}
+
+		$session_cookie_secure = False;
+		if ( array_key_exists('session_cookie_secure', GID::$config) ) {
+			$session_cookie_secure = GID::$config['session_cookie_secure'];
+		}
+
+		$session_cookie_http_only = False;
+		if ( array_key_exists('session_cookie_http_only', GID::$config) ) {
+			$session_cookie_http_only = GID::$config['session_cookie_http_only'];
+		}
+
+		if ( array_key_exists('session_domain', GID::$config) ) {
+			session_set_cookie_params($session_cookie_lifetime, $session_cookie_path, GID::$config['session_domain'], $session_cookie_secure, $session_cookie_http_only);
+		}
+
 		if ( $session_name != null ) {
 			session_name($session_name);
 		}
 
-		if ( array_key_exists('session_domain', GID::$config) ) {
-			session_set_cookie_params(0, '/', GID::$config['session_domain']);
-		}
 		session_start();
+
+		$GID = '__GID__';
+		if ( array_key_exists('session_cookie_GID', GID::$config) ) {
+			$GID = GID::$config['session_cookie_GID'];
+		}
+		# refreshes cookie timeout on return of user to site
+		if ( array_key_exists($GID, $_COOKIE) ) {
+			setcookie($GID, $_COOKIE[$GID], time() + $session_cookie_lifetime, $session_cookie_path);
+		}
 	}
 
 	public static function close() {
@@ -1090,9 +1136,18 @@ class SESSION {
 		SESSION::$_started = false;
 	}
 
+	public static function destroy() {
+		session_destroy();
+		SESSION::$_started = false;
+	}
+	
 }
 
 class SECURE {
+
+	public static function unique($size) {
+		return mcrypt_create_iv($size, MCRYPT_DEV_URANDOM);
+	}
 
 	public static function password_hash($password) {
 		$salt = mcrypt_create_iv(16, MCRYPT_DEV_URANDOM);
