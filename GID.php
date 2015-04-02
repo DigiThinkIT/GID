@@ -291,7 +291,7 @@ class GID {
 class Sorting {
 
 	public static function Dependency(&$ordered_list, $key, $dependencies) {
-		
+
 		$max = -1;
 		foreach($dependencies as $depends) {
 			$idx = array_search($depends, $ordered_list);
@@ -318,6 +318,8 @@ class T {
 	private static $_calls = 0;
 	private static $_master = NULL;
 	private static $_content = '';
+	private static $_header_scripts = array();
+	private static $_header_scripts_order = array();
 	private static $_scripts = array();
 	private static $_scripts_order = array();
 	private static $_styles = array();
@@ -325,15 +327,38 @@ class T {
 
 	public static function add_style($name, $url, $dependencies=array()) {
 		T::$_styles[$name] = $url;
+		$idx = array_search($name, T::$_styles_order);
+		if ( $idx > -1 ) {
+			array_splice(T::$_styles_order, $idx, 1);
+		}
 		Sorting::Dependency(T::$_styles_order, $name, $dependencies);
 	}
 
-	public static function add_script($name, $url, $dependencies=array()) {
-		T::$_scripts[$name] = $url;
-		Sorting::Dependency(T::$_scripts_order, $name, $dependencies);
+	public static function add_script($name, $url, $dependencies=array(), $header=false) {
+		if ( $header ) {
+			T::$_header_scripts[$name] = $url;
+			$idx = array_search($name, T::$_header_scripts_order);
+			if ( $idx > -1 ) {
+				array_splice(T::$_header_scripts_order, $idx, 1);
+			}
+			Sorting::Dependency(T::$_header_scripts_order, $name, $dependencies);
+
+		} else {
+			T::$_scripts[$name] = $url;
+			$idx = array_search($name, T::$_scripts_order);
+			if ( $idx > -1 ) {
+				array_splice(T::$_scripts_order, $idx, 1);
+			}
+			Sorting::Dependency(T::$_scripts_order, $name, $dependencies);
+		}
 	}
 
-	public static function URL($path, $use_domain = true) {
+	public static function URL($path=NULL, $use_domain = true) {
+		if ( $path == NULL ) {
+			$path = "";
+			$use_domain = true;
+		}
+
 		echo GID::URL($path, $use_domain);
 	}
 
@@ -452,10 +477,18 @@ class T {
 		}
 	}
 
-	public static function scripts() {
-		foreach(T::$_scripts_order as $key) {
-			$url = T::$_scripts[$key];
-			echo '<script src="'.$url.'" type="text/javascript"></script>'."\n";
+	public static function scripts($header=false) {
+		if ( $header ) {
+			foreach(T::$_header_scripts_order as $key) {
+				$url = T::$_header_scripts[$key];
+				echo '<script src="'.$url.'" type="text/javascript"></script>'."\n";
+			}
+
+		} else {
+			foreach(T::$_scripts_order as $key) {
+				$url = T::$_scripts[$key];
+				echo '<script src="'.$url.'" type="text/javascript"></script>'."\n";
+			}
 		}
 	}	
 }
@@ -876,8 +909,16 @@ class F {
 		F::$fields[$name] = $value;
 	}
 
-	public static function get_field($name) {
-		return F::$fields[$name];
+	public static function get_field($name, $default=null) {
+		if ( $default != null ) {
+			if ( F::$fields[$name] ) {
+				return F::$fields[$name];
+			} else {
+				return $default;
+			}
+		} else {
+			return F::$fields[$name];
+		}
 	}
 
 	/**
