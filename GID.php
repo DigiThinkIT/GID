@@ -151,8 +151,11 @@ class GID {
 				require_once GID::fs_path(GID::$pages_path, $script);
 				
 				$instance = new $cls();
-				
-				$result = call_user_func_array(array($instance, $method), $args);
+				if ( method_exists($instance, 'GID_call') ) {
+					$result = $instance->GID_call($method, $args);
+				} else {
+					$result = call_user_func_array(array($instance, $method), $args);
+				}
 
 				// only pass to next script in call stack if current script returns true
 				if ( $result == GID::pass ) {
@@ -325,8 +328,8 @@ class T {
 	private static $_styles = array();
 	private static $_styles_order = array();
 
-	public static function add_style($name, $url, $dependencies=array()) {
-		T::$_styles[$name] = $url;
+	public static function add_style($name, $url, $dependencies=array(), $media=null) {
+		T::$_styles[$name] = array('url' => $url, 'media' => $media);
 		$idx = array_search($name, T::$_styles_order);
 		if ( $idx > -1 ) {
 			array_splice(T::$_styles_order, $idx, 1);
@@ -334,9 +337,9 @@ class T {
 		Sorting::Dependency(T::$_styles_order, $name, $dependencies);
 	}
 
-	public static function add_script($name, $url, $dependencies=array(), $header=false) {
+	public static function add_script($name, $url, $dependencies=array(), $header=false, $conditional_start=NULL, $conditional_end=NULL) {
 		if ( $header ) {
-			T::$_header_scripts[$name] = $url;
+			T::$_header_scripts[$name] = array('url' => $url, 'conditional_start' => $conditional_start, 'conditional_end' => $conditional_end);
 			$idx = array_search($name, T::$_header_scripts_order);
 			if ( $idx > -1 ) {
 				array_splice(T::$_header_scripts_order, $idx, 1);
@@ -344,7 +347,7 @@ class T {
 			Sorting::Dependency(T::$_header_scripts_order, $name, $dependencies);
 
 		} else {
-			T::$_scripts[$name] = $url;
+			T::$_scripts[$name] = array('url' => $url, 'conditional_start' => $conditional_start, 'conditional_end' => $conditional_end);
 			$idx = array_search($name, T::$_scripts_order);
 			if ( $idx > -1 ) {
 				array_splice(T::$_scripts_order, $idx, 1);
@@ -372,8 +375,24 @@ class T {
 	
 	public static function view($view, $extra_vars = array()) {
 
+		$trace = debug_backtrace();
+		$caller = array_shift($trace);
 		if ( $view == null || strlen(trim($view)) == 0 ) {
-			echo "Invalid view name: Empty";
+			echo '<div class="GID-error">';
+			echo "<div>Invalid view name: Empty</div>";
+			echo "<div>FILE: " . $caller['file'] . "</div>";
+			echo "<div>LINE: " . $caller['line'] . "</div>";
+			echo "</div>";
+			return;
+		}
+
+		if ( !file_exists(GID::fs_path(GID::$views_path, $view . '.phtml') ) ) {
+			echo '<div class="GID-error">';
+			echo "<div>Invalid view path: ".strip_tags($view)."</div>";
+			echo "<div>FILE: " . $caller['file'] . "</div>";
+			echo "<div>LINE: " . $caller['line'] . "</div>";
+			echo "</div>";
+			return;
 		}
 
 		$saved = array();
@@ -472,22 +491,40 @@ class T {
 
 	public static function styles() {
 		foreach(T::$_styles_order as $key) {
-			$url = T::$_styles[$key];
-			echo '<link href="'.$url.'" type="text/css" rel="stylesheet"/>'."\n";
+			$url = T::$_styles[$key]['url'];
+			$media = '';
+			if ( T::$_styles[$key]['media'] ) {
+				$media = 'media="'.T::$_styles[$key]['media'].'"';
+			}
+			echo '<link href="'.$url.'" type="text/css" rel="stylesheet" '.$media.'/>'."\n";
 		}
 	}
 
 	public static function scripts($header=false) {
 		if ( $header ) {
 			foreach(T::$_header_scripts_order as $key) {
-				$url = T::$_header_scripts[$key];
-				echo '<script src="'.$url.'" type="text/javascript"></script>'."\n";
+				$item = T::$_header_scripts[$key];
+				if ( $item['conditional_start'] ) {
+					echo $item['conditional_start'];
+				}
+				echo '<script src="'.$item['url'].'" type="text/javascript"></script>'."\n";
+				if ( $item['conditional_end'] ) {
+					echo $item['conditional_end'];
+				}
+
+				
 			}
 
 		} else {
 			foreach(T::$_scripts_order as $key) {
-				$url = T::$_scripts[$key];
-				echo '<script src="'.$url.'" type="text/javascript"></script>'."\n";
+				$item = T::$_scripts[$key];
+				if ( $item['conditional_start'] ) {
+					echo $item['conditional_start'];
+				}
+				echo '<script src="'.$item['url'].'" type="text/javascript"></script>'."\n";
+				if ( $item['conditional_end'] ) {
+					echo $item['conditional_end'];
+				}
 			}
 		}
 	}	
@@ -833,6 +870,66 @@ class Filter {
 		return $this;
 	}
 
+	public function floatval() {
+		if ( $this->_is_array ) {
+			foreach($this->_value as $key => $val) {
+				$this->_value[$key] = floatval($val);
+			}
+		} else {
+			$this->_value = floatval($this->_value);
+		}
+
+		return $this;
+	}
+
+	public function intval() {
+		if ( $this->_is_array ) {
+			foreach($this->_value as $key => $val) {
+				$this->_value[$key] = intval($val);
+			}
+		} else {
+			$this->_value = intval($this->_value);
+		}
+
+		return $this;
+	}
+
+	protected function _assert($opt, $key, $error, $assertTrue=true) {
+		if ( $error != null ) {
+			if ( is_callable($opt) ) {
+				if ( call_user_func($opt, $this->_value) != $assertTrue ) {
+					F::$errors[$this->_field .  $key][] = $error;
+				}
+			}
+		}
+	}
+
+	public function assertTrue($opt, $error) {
+		if ( $this->_is_array ) {
+			foreach($this->_value as $key => $val) {
+				$this->_assert($opt, '_'.$key, $error, true);
+			}
+		} else {
+				$this->_assert($opt, '', $error, true);
+		}
+
+		return $this;
+		
+	}
+
+	public function assertFalse($opt, $error) {
+		if ( $this->_is_array ) {
+			foreach($this->_value as $key => $val) {
+				$this->_assert($opt, '_'.$key, $error, false);
+			}
+		} else {
+				$this->_assert($opt, '', $error, false);
+		}
+
+		return $this;
+		
+	}
+
 	public function is_file($error="Upload missing") {
 
 		if ( !array_key_exists($this->_field, $_FILES) ) {
@@ -981,6 +1078,32 @@ class F {
 		}
 	}
 
+	public static function hidden($name, $type="hidden", $override=array(), $extra='', $echo=true) {
+		$build = array("name" => $name, "id" => $name, "type" => $type);
+		if ( array_key_exists($name, F::$fields) ) {		
+			$build["value"] = F::$fields[$name];
+		}
+
+		$build = array_merge($build, $override);
+		$parts = array();
+		foreach($build as $k => $v) {
+			$parts[] = "$k=\"$v\"";
+		}
+		$parts = implode(" ", $parts);
+		ob_start()
+?><div class="field field_<?php echo $name ?>"><input <?php echo $parts ?> /><?php echo $extra;
+		if ( array_key_exists($name, F::$errors) && sizeof(F::$errors[$name]) ) {
+?><div class="error"><?php echo implode('<br/>', F::$errors[$name]) ?></div><?php
+        	}
+		?></div><?php
+		$content = ob_get_clean();
+		if ( $echo ) {
+			echo $content;
+		} else {
+			return $content;
+		}
+	}
+
 	public static function text($name, $label, $override=array(), $extra='', $echo=true) {
 		return F::input($name, $label, 'text', $override, $extra, $echo); 
 	}
@@ -1005,6 +1128,10 @@ class F {
 ?><div class="error"><?php echo implode('<br/>', F::$errors[$name]) ?></div><?php
 		}
 		?></div><?php
+	}
+
+	public static function radio($name, $label, $value, $is_default=false, $type="radio", $override=array()) {
+		return F::checkbox($name, $label, $value, $is_default, $type, $override);
 	}
 
 	public static function textarea($name, $label, $override=array()) {
