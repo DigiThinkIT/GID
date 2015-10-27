@@ -202,6 +202,10 @@ class GID {
 		return join(DIRECTORY_SEPARATOR, $parts);
 	}
 
+	public static function append_include_path($path) {
+		set_include_path(get_include_path() . PATH_SEPARATOR . $path);
+	}
+
 	public static function map($map) {
 		foreach($map as $key => $action) {
 
@@ -817,7 +821,7 @@ class Filter {
 	public function max($max, $error = null) {
 		if ( $this->_is_array ) {
 			foreach($this->_value as $key => $val) {
-				$this->_value[$key] = $this->_max($val, $max, $error, '_'.$key);
+				$this->_value[$key] = $this->_max($val, $max, $error, '_' . $key);
 			}
 		} else {
 			$this->_value = $this->_max($this->_value, $max, $error, '');
@@ -830,6 +834,48 @@ class Filter {
 		$this->min($min, $error);
 		$this->max($max, $error);
 		return $this;
+	}
+
+	public function allowed_chars($chars, $error = null) {
+		if ( $this->_is_array ) {
+			foreach($this->_value as $key => $val) {
+				$this->_allowed_chars($val, $chars, $error, "_" . $key);
+			}
+		} else {
+			$this->_allowed_chars($this->_value, $chars, $error, '');
+		}
+
+		return $this;
+	}
+
+	public function _allowed_chars($value, $chars, $error, $key) {
+		for($i=0; $i < strlen($value); $i++) {
+			if ( strpos($chars, $value[$i]) === false ) {
+				F::$errors[$this->_field . $key][] = $error . '('.$value[$i] . '|' . $chars.')';
+				break;
+			}
+		}
+	}
+
+	public function not_allowed_chars($chars, $error = null) {
+		if ( $this->_is_array ) {
+			foreach($this->_value as $key => $val) {
+				$this->_not_allowed_chars($val, $chars, $error, "_" . $key);
+			}
+		} else {
+			$this->_not_allowed_chars($this->_value, $chars, $error, '');
+		}
+
+		return $this;
+	}
+
+	public function _not_allowed_chars($value, $chars, $error, $key) {
+		for($i=0; $i < strlen($value); $i++) {
+			if ( strpos($chars, $value[$i]) !== false ) {
+				F::$errors[$this->_field . $key][] = $error . '('.$value[$i] . '|' . $chars.')';
+				break;
+			}
+		}
 	}
 
 	public function default_value($default_value) {
