@@ -669,7 +669,7 @@ class Filter {
 	public function not_empty($error = "Value can't be empty") {
 		$this->_allow_empty = false;
 
-		if ( $this->_is_array ) {
+		if ( $this->_is_array && !empty($this->_value) ) {
 			foreach($this->_value as $key=>$val) {
 				$this->_not_empty($val, $error, '_'.$key);
 			}
@@ -895,13 +895,24 @@ class Filter {
 	 */
 	public function enum() {
 		$args = func_get_args();
-		if ( sizeof($args) == 1 && is_array($args[0]) ) {
-			$args = $args[0];
+
+		if ( $this->_is_array ) {
+			foreach($this->_value as $key=>$val) {
+				$this->_enum($val, $args, "_" . $key);
+			}
+		} else {
+			$this->_enum($this->_value, $args, '');
 		}
 
-		$value = F::$fields[$this->_field];
+	}
+
+	private function _enum($value, $args, $key) {
 		if ( !in_array($value, $args) ) {
-			F::$fields[$this->_field] = null;
+			if ( $key != '' ) {
+				F::$fields[$this->_field][$key] = null;
+			} else {
+				F::$fields[$this->_field] = null;
+			}
 		}
 		return $this;
 	}
