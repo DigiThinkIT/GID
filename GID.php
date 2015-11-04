@@ -896,25 +896,26 @@ class Filter {
 	public function enum() {
 		$args = func_get_args();
 
-		if ( $this->_is_array ) {
-			foreach($this->_value as $key=>$val) {
-				$this->_enum($val, $args, "_" . $key);
+		if ( $this->_is_array && !empty($this->_value) ) {
+			foreach(array_keys($this->_value) as $key) {
+				$val = $this->_value[$key];
+				$this->_enum($val, $args, $key);
 			}
 		} else {
-			$this->_enum($this->_value, $args, '');
+			$this->_enum($this->_value, $args, false);
 		}
 
+		return $this;
 	}
 
 	private function _enum($value, $args, $key) {
 		if ( !in_array($value, $args) ) {
-			if ( $key != '' ) {
+			if ( $key ) {
 				F::$fields[$this->_field][$key] = null;
 			} else {
 				F::$fields[$this->_field] = null;
 			}
 		}
-		return $this;
 	}
 
 	public function cast($type, $error = null) {
