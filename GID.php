@@ -91,8 +91,61 @@ class GID {
 		return $default;
 	}
 
+	public static function _error_handler($severity, $message, $file, $line) {
+		if ( !(error_reporting() & $severity) ) {
+			switch($severity) {
+				case E_WARNING      :
+				case E_USER_WARNING :
+				case E_STRICT       :
+				case E_NOTICE       :
+				case E_USER_NOTICE  :
+					$type = 'warning';
+					$fatal = false;
+					break;
+				default             :
+					$type = 'fatal error';
+					$fatal = true;
+					break;
+			}
+			$trace = array_reverse(debug_backtrace());
+			array_pop($trace);
+			$is_cli = php_sapi_name() == 'cli';
+			if ( $is_cli ) {
+				echo "Backtrace from $type '$message' at $file $line:\n"; 
+			} else {
+				echo "<p class=\"php_error\">Backtrace from $type '$message' at $file $line<ol>";
+			}
+
+			foreach($trace as $item) {
+				$item_file = isset($item['file'])?$item['file']:'<unknown file>';
+				$item_line = isset($item['line'])?$item['line']:'<unknown line>';
+				$item_func = $item['function'];
+				if ( $is_cli ) {
+					echo "  $item_file $item_line $item_func()\n";
+				} else {
+					echo "<li><pre>$item_file $item_line $item_func()</pre></li>";
+
+				}
+			}
+
+			if ( $is_cli ) {
+				echo "</ol></p>";
+			}
+
+			if ($fatal) {
+				throw new ErrorException($message, 0, $severity, $file, $line);
+				exit(1);
+			}
+
+			return;
+		}
+
+		throw new ErrorException($message, 0, $severity, $file, $line);
+	}
+
 	public static function init($config = array()) {
 		if ( !GID::$_inited ) {
+			set_error_handler('GID::_error_handler');
 			if ( array_key_exists('app_path', $config) ) {
 				GID::$path = realpath($config['app_path']);
 			} else {
@@ -546,9 +599,33 @@ class Filter {
 			F::$fields[$this->_field] = null;
 		}
 
-		$this->_is_array = is_array(F::$fields[$this->_field]);
-
 		$this->_value = &F::$fields[$this->_field];
+		$type = gettype($this->_value);
+		$this->_is_array = is_array($this->_value) || $type == 'array' || $this->_value instanceof ArrayAccess;
+		$is_array = $this->_is_array?'yes':'no';
+	}
+/*
+	public function __get($property) {
+		$getter = "get_$property";
+		if ( property_exists($this, $getter) ) {
+			echo "GETTER: $getter<br/>";
+			return $this->$getter();
+		}
+	}
+
+	public function __set($property, $value) {
+		$setter = "set_$property";
+		if ( property_exists($this, $setter) ) {
+			$this->$setter($value);
+		}
+	}
+ */
+	public function set_value($value) {
+		F::$fields[$this->_field] = value;
+	}
+
+	public function get_value($value) {
+		return F::$fields[$this->_field];
 	}
 
 	public function is_email($error) {
@@ -911,9 +988,9 @@ class Filter {
 	private function _enum($value, $args, $key) {
 		if ( !in_array($value, $args) ) {
 			if ( $key ) {
-				F::$fields[$this->_field][$key] = null;
+				$this->value[$key] = null;
 			} else {
-				F::$fields[$this->_field] = null;
+				$this->value = null;
 			}
 		}
 	}
