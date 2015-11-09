@@ -113,7 +113,7 @@ class GID {
 			if ( $is_cli ) {
 				echo "Backtrace from $type '$message' at $file $line:\n"; 
 			} else {
-				echo "<p class=\"php_error\">Backtrace from $type '$message' at $file $line<ol>";
+				echo "<p class=\"GID_error\">Backtrace from <span class=\"type\">$type</span> '<span class=\"message\">$message</span>' at <span class=\"filename\">$file</span> <span class=\"fileline\">$line</span><ul>";
 			}
 
 			foreach($trace as $item) {
@@ -121,15 +121,15 @@ class GID {
 				$item_line = isset($item['line'])?$item['line']:'<unknown line>';
 				$item_func = $item['function'];
 				if ( $is_cli ) {
-					echo "  $item_file $item_line $item_func()\n";
+					echo "  $item_file $item_line $item_func\()\n";
 				} else {
-					echo "<li><pre>$item_file $item_line $item_func()</pre></li>";
+					echo "<li><span class=\"filename\">$item_file</span> <span class=\"fileline\">$item_line</span> <span class=\"function\">$item_func()</span></li>";
 
 				}
 			}
 
-			if ( $is_cli ) {
-				echo "</ol></p>";
+			if ( !$is_cli ) {
+				echo "</ul></p>";
 			}
 
 			if ($fatal) {
@@ -1459,6 +1459,75 @@ class SECURE {
 
 	public static function password_check($password, $hash) {
 		return $hash == crypt($password, $hash);
+	}
+
+}
+
+class CRON {
+	public static $config = array("report_errors"=>true, "cron_dir"=>"cronjobs");
+
+	public static function config($config) {
+		CRON::$config = array_merge(CRON::$config, $config);
+		if ( !array_key_exists('path', CRON::$config) ) {
+			throw Exception("Cron 'path' config key not set. This is required for application relative paths");
+		}
+
+		$path = CRON::$config['path'];
+		GID::$path = $path;
+		GID::append_include_path(GID::fs_path(GID::$path, 'includes'));
+	}
+
+	public static function process() {
+		$path = CRON::$config['path'];
+
+
+		if ( CRON::$config['report_errors'] ) {
+			// enable error reporting
+			error_reporting(E_ALL);
+			ini_set('display_errors', TRUE);
+			ini_set('display_startup_errors', TRUE);
+		}
+
+		// making this script location the default directory
+		chdir($path);
+		$crondir = CRON::$config['cron_dir'];
+
+		// lock cron process
+		$lock_fp = fopen('cron.lock', "w");
+		if ( flock($lock_fp, LOCK_EX) ) {
+			try {
+				$cron_start = microtime(true);
+
+				if ( file_exists($crondir) ) {
+					$dirhandle = opendir($crondir);
+					while($file = readdir($dirhandle)) {
+						$file_path = GID::fs_path($crondir, $file);
+						$ext = pathinfo($file_path, PATHINFO_EXTENSION);
+						if ( !is_dir($file_path) && $ext == 'php') {
+							try {
+								echo "=== RUNNING $file_path ========================\n";
+								$job_start = microtime(true);
+								require $file_path;
+								$job_elapsed = microtime(true) - $job_start;
+								echo "=== Job time: {$job_elapsed}s\n";
+							} catch (Exception $job_ex) {
+								echo "!!! CRON EXCEPTION: {$job_ex}\n";
+							}
+						}
+					}
+				} else {
+					echo "!!! cron Directory Missing!\n";
+				}
+				$cron_elapsed = microtime(true) - $cron_start;
+				echo "=== DONE {$cron_elapsed}s\n";
+			} catch (Exception $ex) {
+				echo $ex;
+			}
+			
+			// unlock cron process
+			flock($lock_fp, LOCK_UN);
+		}
+
 	}
 
 }
