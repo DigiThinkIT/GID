@@ -92,18 +92,24 @@ class GID {
 	}
 
 	public static function _error_handler($severity, $message, $file, $line) {
-		if ( !(error_reporting() & $severity) ) {
+		if ( (error_reporting() & $severity) == $severity ) {
+			$type_class = '';
 			switch($severity) {
 				case E_WARNING      :
+					$type_class = 'warning';
 				case E_USER_WARNING :
+					$type_class = 'warning';
 				case E_STRICT       :
+					$type_class = 'strict';
 				case E_NOTICE       :
+					$type_class = 'notice';
 				case E_USER_NOTICE  :
 					$type = 'warning';
 					$fatal = false;
 					break;
 				default             :
 					$type = 'fatal error';
+					$type_class = 'error';
 					$fatal = true;
 					break;
 			}
@@ -113,7 +119,7 @@ class GID {
 			if ( $is_cli ) {
 				echo "Backtrace from $type '$message' at $file $line:\n"; 
 			} else {
-				echo "<p class=\"GID_error\">Backtrace from <span class=\"type\">$type</span> '<span class=\"message\">$message</span>' at <span class=\"filename\">$file</span> <span class=\"fileline\">$line</span><ul>";
+				echo "<div class=\"GID_error\">Backtrace from <span class=\"type $type_class\">$type</span> '<span class=\"message\">$message</span>' at <span class=\"filename\">$file</span> <span class=\"fileline\">$line</span><ul>";
 			}
 
 			foreach($trace as $item) {
@@ -129,7 +135,7 @@ class GID {
 			}
 
 			if ( !$is_cli ) {
-				echo "</ul></p>";
+				echo "</ul></div>";
 			}
 
 			if ($fatal) {
@@ -140,7 +146,7 @@ class GID {
 			return;
 		}
 
-		throw new ErrorException($message, 0, $severity, $file, $line);
+		//throw new ErrorException($message, 0, $severity, $file, $line);
 	}
 
 	public static function init($config = array()) {
