@@ -23,6 +23,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
+/**
+ * The GID framework class. All methods are static to force single state of the framework(Could have been done with singleton, but who instantiates a framework more than once?)
+ */
 class GID {
 
 	const pass = 'pass';
@@ -40,10 +43,16 @@ class GID {
 	public static $domain = '';
 	public static $path_prefix = '';
 
+	/**
+	 * Sets the debug flag or debug assoc data
+	 */
 	public static function debug($on) {
 		GID::$_dbug = $on;
 	}
 
+	/**
+	 * Checks if debuging is turned on or if GID::debug was set to an arraycheck if key exists in the array
+	 */
 	public static function debug_check($check) {
 		if ( $check === true ) {
 			return GID::$_dbug !== false;
@@ -52,19 +61,28 @@ class GID {
 		return is_array(GID::$_dbug) && array_search($check, GID::$_dbug);
 	}
 
+	/**
+	 * Returns the absolute URL(including domain if in $config)
+	 */
 	public static function URL($path, $include_domain = True) {
 		$base = '';
-		if ( array_key_exists('domain', GID::$config ) ) {
+		if ( $include_domain && array_key_exists('domain', GID::$config ) ) {
 			$base = (GID::is_secure()?'https://':'http://') . GID::$config['domain'];
 		}
 
 		return $base . GID::$path_prefix . $path;
 	}
 
+	/**
+	 * Returns true if currently in secure context(HTTPS in url)
+	 */
 	public static function is_secure() {
 		return isset($_SESSION['HTTPS']);
 	}
 
+	/**
+	 * Redirects page location to an absolute url
+	 */
 	public static function redirect($url) {
 		if ( SESSION::started() ) {
 			SESSION::close();
@@ -73,6 +91,9 @@ class GID {
 		exit();
 	}
 
+	/**
+	 * Returns the URI as parsed by GID
+	 */
 	public static function URI() {
 		$uri_info = GID::parse_uri();
 		# remove prefix from url to keep app paths clean and relative to $path_prefix
@@ -83,6 +104,9 @@ class GID {
 		return $uri_path;
 	}
 
+	/**
+	 * Returns value in assoc array or default value
+	 */
 	public static function get_value_else($array, $key, $default = NULL) {
 		if ( array_key_exists($key, $array) ) {
 			return $array[$key];
@@ -91,6 +115,9 @@ class GID {
 		return $default;
 	}
 
+	/**
+	 * Initializes the GID Framework.
+	 */
 	public static function init($config = array()) {
 		if ( !GID::$_inited ) {
 			if ( array_key_exists('app_path', $config) ) {
@@ -190,22 +217,45 @@ class GID {
 		}
 		return $call_stack;
 	}
-	
+
+	/**
+	 * Framework shutdown procedure, usually called automatically on script exit
+	 */
 	public static function shutdown() {
 
 		ob_flush();
 		if ( file_exists(GID::$_on_end_path) ) { include_once(GID::$_on_end_path); }
 	}
 
+	/**
+	 * A helper method which takes file path parts and joins them with the appropriate DIRECTORY_SEPARATOR
+	 */
 	public static function fs_path() {
 		$parts = func_get_args();
 		return join(DIRECTORY_SEPARATOR, $parts);
 	}
 
+	/**
+	 * Appends a path to the include path
+	 */
 	public static function append_include_path($path) {
 		set_include_path(get_include_path() . PATH_SEPARATOR . $path);
 	}
 
+	/**
+	 * Sets a regex map of urls to class->function or function.
+	 * Usage:
+	 * GID::map(array(
+	 * 	/* simple mapping to a file containing a class and the method to call when a GET or POST requests is done on /'
+
+	 *	'GET|POST /' => 'mycode.php Page->index',
+	 *
+	 *	/* simple mapping to a file containing a function to call when a GET request os done on /get-test
+	 *	'GET /get-test/?' => 'myfunctions.php get_test',
+	 *
+	 *	/* argument mapping to a class method called when a get requests is done on /get-with-args/some-data where "some-data" is anything that matches [a-z0-9\-_]+ regex
+	 *	'GET /get-with-args/(?P<arg>[a-z0-9\-_]+)/?' => array('mycode.php Page->get_with_args', 'arg')
+	 */
 	public static function map($map) {
 		foreach($map as $key => $action) {
 
@@ -235,6 +285,9 @@ class GID {
 		#print_r(GID::$_uri);
 	}
 
+	/**
+	 * Parses the request uri into an internal assoc representation used by the framework
+	 */
 	public static function parse_uri() {
 		$path = array();
 		if (isset($_SERVER['REQUEST_URI'])) {
@@ -295,6 +348,9 @@ class GID {
 	}
 }
 
+/**
+ * Simple sorting class used to arange dependencies
+ */
 class Sorting {
 
 	public static function Dependency(&$ordered_list, $key, $dependencies) {
@@ -317,7 +373,7 @@ class Sorting {
 }
 
 /**
- * Simple template helper class
+ * Simple recursive template helper class.
  */
 class T {
 
