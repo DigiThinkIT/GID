@@ -116,10 +116,72 @@ class GID {
 	}
 
 	/**
+	 * Internal error handler
+	 */
+	public static function _error_handler($severity, $message, $file, $line) {
+		if ( (error_reporting() & $severity) == $severity ) {
+			$type_class = '';
+			switch($severity) {
+				case E_WARNING      :
+					$type_class = 'warning';
+				case E_USER_WARNING :
+					$type_class = 'warning';
+				case E_STRICT       :
+					$type_class = 'strict';
+				case E_NOTICE       :
+					$type_class = 'notice';
+				case E_USER_NOTICE  :
+					$type = 'warning';
+					$fatal = false;
+					break;
+				default             :
+					$type = 'fatal error';
+					$type_class = 'error';
+					$fatal = true;
+					break;
+			}
+			$trace = array_reverse(debug_backtrace());
+			array_pop($trace);
+			$is_cli = php_sapi_name() == 'cli';
+			if ( $is_cli ) {
+				echo "Backtrace from $type '$message' at $file $line:\n"; 
+			} else {
+				echo "<div class=\"GID_error\">Backtrace from <span class=\"type $type_class\">$type</span> '<span class=\"message\">$message</span>' at <span class=\"filename\">$file</span> <span class=\"fileline\">$line</span><ul>";
+			}
+
+			foreach($trace as $item) {
+				$item_file = isset($item['file'])?$item['file']:'<unknown file>';
+				$item_line = isset($item['line'])?$item['line']:'<unknown line>';
+				$item_func = $item['function'];
+				if ( $is_cli ) {
+					echo "  $item_file $item_line $item_func\()\n";
+				} else {
+					echo "<li><span class=\"filename\">$item_file</span> <span class=\"fileline\">$item_line</span> <span class=\"function\">$item_func()</span></li>";
+
+				}
+			}
+
+			if ( !$is_cli ) {
+				echo "</ul></div>";
+			}
+
+			if ($fatal) {
+				throw new ErrorException($message, 0, $severity, $file, $line);
+				exit(1);
+			}
+
+			return;
+		}
+
+		//throw new ErrorException($message, 0, $severity, $file, $line);
+	}
+
+	/**
 	 * Initializes the GID Framework.
 	 */
 	public static function init($config = array()) {
 		if ( !GID::$_inited ) {
+			set_error_handler('GID::_error_handler');
 			if ( array_key_exists('app_path', $config) ) {
 				GID::$path = realpath($config['app_path']);
 			} else {
@@ -602,9 +664,33 @@ class Filter {
 			F::$fields[$this->_field] = null;
 		}
 
-		$this->_is_array = is_array(F::$fields[$this->_field]);
-
 		$this->_value = &F::$fields[$this->_field];
+		$type = gettype($this->_value);
+		$this->_is_array = is_array($this->_value) || $type == 'array' || $this->_value instanceof ArrayAccess;
+		$is_array = $this->_is_array?'yes':'no';
+	}
+/*
+	public function __get($property) {
+		$getter = "get_$property";
+		if ( property_exists($this, $getter) ) {
+			echo "GETTER: $getter<br/>";
+			return $this->$getter();
+		}
+	}
+
+	public function __set($property, $value) {
+		$setter = "set_$property";
+		if ( property_exists($this, $setter) ) {
+			$this->$setter($value);
+		}
+	}
+ */
+	public function set_value($value) {
+		F::$fields[$this->_field] = value;
+	}
+
+	public function get_value($value) {
+		return F::$fields[$this->_field];
 	}
 
 	public function is_email($error) {
@@ -725,7 +811,7 @@ class Filter {
 	public function not_empty($error = "Value can't be empty") {
 		$this->_allow_empty = false;
 
-		if ( $this->_is_array ) {
+		if ( $this->_is_array && !empty($this->_value) ) {
 			foreach($this->_value as $key=>$val) {
 				$this->_not_empty($val, $error, '_'.$key);
 			}
@@ -951,15 +1037,27 @@ class Filter {
 	 */
 	public function enum() {
 		$args = func_get_args();
-		if ( sizeof($args) == 1 && is_array($args[0]) ) {
-			$args = $args[0];
+
+		if ( $this->_is_array && !empty($this->_value) ) {
+			foreach(array_keys($this->_value) as $key) {
+				$val = $this->_value[$key];
+				$this->_enum($val, $args, $key);
+			}
+		} else {
+			$this->_enum($this->_value, $args, false);
 		}
 
-		$value = F::$fields[$this->_field];
-		if ( !in_array($value, $args) ) {
-			F::$fields[$this->_field] = null;
-		}
 		return $this;
+	}
+
+	private function _enum($value, $args, $key) {
+		if ( !in_array($value, $args) ) {
+			if ( $key ) {
+				$this->value[$key] = null;
+			} else {
+				$this->value = null;
+			}
+		}
 	}
 
 	public function cast($type, $error = null) {
@@ -1426,6 +1524,75 @@ class SECURE {
 
 	public static function password_check($password, $hash) {
 		return $hash == crypt($password, $hash);
+	}
+
+}
+
+class CRON {
+	public static $config = array("report_errors"=>true, "cron_dir"=>"cronjobs");
+
+	public static function config($config) {
+		CRON::$config = array_merge(CRON::$config, $config);
+		if ( !array_key_exists('path', CRON::$config) ) {
+			throw Exception("Cron 'path' config key not set. This is required for application relative paths");
+		}
+
+		$path = CRON::$config['path'];
+		GID::$path = $path;
+		GID::append_include_path(GID::fs_path(GID::$path, 'includes'));
+	}
+
+	public static function process() {
+		$path = CRON::$config['path'];
+
+
+		if ( CRON::$config['report_errors'] ) {
+			// enable error reporting
+			error_reporting(E_ALL);
+			ini_set('display_errors', TRUE);
+			ini_set('display_startup_errors', TRUE);
+		}
+
+		// making this script location the default directory
+		chdir($path);
+		$crondir = CRON::$config['cron_dir'];
+
+		// lock cron process
+		$lock_fp = fopen('cron.lock', "w");
+		if ( flock($lock_fp, LOCK_EX) ) {
+			try {
+				$cron_start = microtime(true);
+
+				if ( file_exists($crondir) ) {
+					$dirhandle = opendir($crondir);
+					while($file = readdir($dirhandle)) {
+						$file_path = GID::fs_path($crondir, $file);
+						$ext = pathinfo($file_path, PATHINFO_EXTENSION);
+						if ( !is_dir($file_path) && $ext == 'php') {
+							try {
+								echo "=== RUNNING $file_path ========================\n";
+								$job_start = microtime(true);
+								require $file_path;
+								$job_elapsed = microtime(true) - $job_start;
+								echo "=== Job time: {$job_elapsed}s\n";
+							} catch (Exception $job_ex) {
+								echo "!!! CRON EXCEPTION: {$job_ex}\n";
+							}
+						}
+					}
+				} else {
+					echo "!!! cron Directory Missing!\n";
+				}
+				$cron_elapsed = microtime(true) - $cron_start;
+				echo "=== DONE {$cron_elapsed}s\n";
+			} catch (Exception $ex) {
+				echo $ex;
+			}
+			
+			// unlock cron process
+			flock($lock_fp, LOCK_UN);
+		}
+
 	}
 
 }
