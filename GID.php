@@ -755,11 +755,18 @@ class Filter {
 	}
 
 	private function _sanitize($value) {
-		return trim(filter_var(strip_tags($value), FILTER_SANITIZE_STRING));
+		if ( is_array($value) ) {
+			foreach($value as $k => $v) {
+				$v = $this->_sanitize($v);
+				$value[$k] = $v;
+			}	
+			return $value;
+		} else {
+			return trim(filter_var(strip_tags($value), FILTER_SANITIZE_STRING));
+		}
 	}
 
 	public function sanitize() {
-
 		if ( $this->_is_array ) {
 			foreach($this->_value as $key => $val) {
 				$this->_value[$key] = $this->_sanitize($val);
