@@ -829,6 +829,22 @@ class Filter {
 		return $this;
 	}
 
+	private function _equals($value, $eq, $error, $key) {
+		if ( $value == $eq ) {
+			F::$errors[$this->_field . $key][] = $error;
+		}
+	}
+
+	public function equals($eq, $error) {
+		if ( $this->_is_array && !empty($this->_value) ) {
+			foreach($this->_value as $key=>$val) {
+				$this->_equals($val, $eq, $error, '_'.$key);
+			}
+		} else {
+			$this->_equals($this->_value, $eq, $error, '');
+		}
+	}
+
 	public function depends_on($field, $error, $only_when_set=false) {
 		$other_value = F::get_field($field);
 		$value = F::get_field($this->_field);
