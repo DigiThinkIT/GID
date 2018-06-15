@@ -77,7 +77,7 @@ class GID {
 	 * Returns true if currently in secure context(HTTPS in url)
 	 */
 	public static function is_secure() {
-		return isset($_SESSION['HTTPS']);
+		return isset($_SERVER['HTTPS']);
 	}
 
 	/**
